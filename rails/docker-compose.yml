@@ -1,0 +1,33 @@
+version: '3'
+
+services:
+  fdb:
+    build: .
+    ports:
+      - "3001:3000"
+    volumes:
+      - .:/usr/src/app
+      - gem_cache:/gems
+    env_file:
+      - .env/development/database
+      - .env/development/web
+    networks:
+      - app-net
+
+  fdb_database:
+    image: postgres
+    env_file:
+      - .env/development/database
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    networks:
+      - app-net
+
+volumes:
+  db_data:
+  gem_cache:
+
+networks:
+  app-net:
+    external:
+      name: alt_curation

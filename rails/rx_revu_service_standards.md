@@ -53,7 +53,7 @@ We use the ELK stack.
     service_version: <%= ENV.fetch("SERVICE_VERSION", "unknown") %>
     ```
 
-3. Create '.env/development/apm' and add the following:
+3. Create `.env/development/apm` and add the following:
     ```
     ELASTIC_APM_ACTIVE=true
     ELASTIC_APM_API_REQUEST_TIME=29s
@@ -97,29 +97,31 @@ We use the ELK stack.
 #### Running Elk:
 
 1. Clone docker-elk
-    Git clone this project: [https://github.com/deviantony/docker-elk](https://github.com/deviantony/docker-elk)
-
-2. Run docker-elk
+    * Git clone this project: [https://github.com/deviantony/docker-elk](https://github.com/deviantony/docker-elk)
+2. Create elk network
+    `docker network create docker-elk_elk`
+3. Run docker-elk
     ```yml
-    docker-compose up -d
+       docker-compose -f docker-compose.yml -f extensions/apm-server/apm-server-compose.yml up 
     ```
 
-3. Celebrate
+4. Celebrate
 
 #### Starting Kibana
 
 1. Navigate to http://localhost:5601
-2. (B) Add APM
-3. APM Server
+2. Login using the `ELASTICSEARCH_USERNAME` and `ELASTICSEARCH_PASSWORD` stored in 1Password under "RxRevu - Elk Vars"
+3. (B) Add APM
+4. APM Server
     1. (T) macOS
     2. (B) Check APM Server status
-4. APM Agents
+5. APM Agents
     1. (T) Ruby on Rails
     2. (B) Check agent status
     3. (B) Load Kibana objects
     4. (B) Launch APM
-5. (L) FdbService // replace with service name
-6. Celebrate
+6. (L) FdbService // replace with service name
+7. Celebrate
 
 ### Metrics
 
@@ -132,12 +134,13 @@ We use `prometheus_exporter`.
     gem "prometheus_exporter", "0.4.16"
     ```
 
-2. Add the following to `config/docker/intialize_rails.sh`
+2. Add the following to `config/docker/initialize_rails.sh`
     ```sh
-    #!/bin/sh
-    set -e
-    cd /home/app/rxcheck
-    exec /sbin/setuser app /usr/bin/bundle exec prometheus_exporter
+   #!/bin/sh
+   set -e
+   cd /usr/src/app
+   bin/bundle exec prometheus_exporter &
+   bin/rails s -b  0.0.0.0
     ```
 
 3. Make the following changes to your service(s) in `docker-compose.yml`:
@@ -181,6 +184,17 @@ We use `prometheus_exporter`.
     end
 
     ```
+5. Rebuild docker image: `docker-compose build`
+6. Add the following to `Dockerfile`
+    ```
+    # Prometheus Exporter
+    RUN mkdir -p /opt/fdb_service
+    COPY config/docker/initialize_rails.sh /opt/fdb_service/initialize.sh
+    RUN chmod +x /opt/fdb_service/initialize.sh
+    CMD ["/opt/fdb_service/initialize.sh"]
+    ```
+7. Navigate to `localhost:8080/metrics` to verify it's working
+8. Celebrate    
 
 ### Health Checks
 
@@ -208,6 +222,8 @@ We use `health_check`.
     ...
     ```
 
+4. Navigate to `localhost:3000/health_check` to verify it's working    
+
 ### Rails Standards
 
 TBD
@@ -227,6 +243,10 @@ We use `rspec`.
     end
     ```
 
+2. Bundle
+
+3. Initialize rspec (replace with service name): `docker-compose run fdb bundle exec rails generate rspec:install`
+
 #### Static Code Analysis
 
 We use `rubocop`.
@@ -241,8 +261,43 @@ We use `rubocop`.
       ...
     end
     ```
+   
+2. Create `.rubocop.yml` at the top level of your project:
+    ```
+    AllCops:
+      TargetRubyVersion: 2.5.5
+      Exclude:
+        - spec/dummy/db/schema.rb
+    
+    Layout/LineLength:
+      Max: 120
+    
+    Style/AndOr:
+      Enabled: false
+    
+    Lint/ShadowingOuterLocalVariable:
+      Enabled: false
+    
+    Style/Documentation:
+      Enabled: false
+    
+    Style/FrozenStringLiteralComment:
+      Enabled: false
+    
+    Style/StringLiterals:
+      EnforcedStyle: double_quotes
+    
+    Style/TrailingCommaInArguments:
+      EnforcedStyleForMultiline: comma
+    
+    Style/TrailingCommaInArrayLiteral:
+      EnforcedStyleForMultiline: comma
+    
+    Style/TrailingCommaInHashLiteral:
+      EnforcedStyleForMultiline: comma
+    ```
 
-2. TBD
+3. Bundle
 
 #### Security Vulnerability Scanner
 
@@ -255,7 +310,7 @@ We use `brakeman`.
     gem 'brakeman', '~> 4.8'
     ```
 
-2. TBD
+2. Bundle
 
 #### Gem Vulnerability Scanner
 
@@ -272,7 +327,88 @@ We use `bundle_audit`.
     end
     ```
 
-2. TBD
+2. Bundle
+
+#### Running tests
+
+We use `test.sh` to wrap the above steps
+
+##### Setup
+
+1. Create `test.sh`:
+   ```
+   #!/usr/bin/env bash
+   
+   exit_code=0
+   
+   echo "****************************************"
+   echo "** MyService                          **"
+   echo "****************************************"
+   
+   echo ""
+   echo "* Bundling"
+   echo ""
+   bundle | grep Installing
+   
+   echo ""
+   echo "*** Running Brakeman Checks"
+   echo "* Installing latest brakeman"
+   
+   output="$(bundle exec brakeman --quiet --exit-on-warn --exit-on-error --no-pager --ensure-latest 2>&1)"
+   brakeman_exit_code=$?
+   
+   echo ""
+   echo "************************************"
+   if (($brakeman_exit_code)) ; then
+     printf "\e[31m${output}\e[0m\n"
+   else
+     echo "${output}"
+   fi
+   echo "************************************"
+   echo ""
+   
+   exit_code=$(($exit_code + $brakeman_exit_code))
+   
+   echo ""
+   echo "*** Running Bundler-Audit Check"
+   bundle exec bundle-audit check --update
+   
+   exit_code=$(($exit_code + $?))
+   
+   echo ""
+   echo "*** Running Rubocop Checks"
+   echo "* Bundling"
+   bundle exec rubocop --config ./.rubocop.yml --fail-level W --display-only-fail-level-offenses
+   
+   exit_code=$(($exit_code + $?))
+   
+   echo ""
+   echo "*** Running Specs"
+   echo "* Clearing log directory"
+   find . -name "*.log" | xargs rm -f
+   echo "* Dropping database"
+   RAILS_ENV=test bundle exec rake db:drop
+   echo "* Creating database"
+   RAILS_ENV=test bundle exec rake db:create
+   echo "* Loading structure"
+   RAILS_ENV=test bundle exec rake db:schema:load
+   
+   bundle exec rspec
+   
+   exit_code=$(($exit_code + $?))
+   
+   echo ""
+   echo "************************************"
+   if ((exit_code == 0)) ; then
+     echo "TESTS SUCCEEDED"
+   else
+     echo "TESTS FAILED"
+   fi
+   echo "************************************"
+   
+   exit $exit_code
+   ```   
+2. Run `docker-compose run fdb ./test.sh`
 
 #### Schema v. Structure
 
@@ -321,3 +457,8 @@ TBD
 #### CodePipeline / CodeDeploy
 
 TBD
+
+## Troubleshooting
+
+* If you have trouble starting up a rails app because the `server.pid` file exists, you can add this command to your service in `docker-compose.yml` as a workaround:
+  * `command: bash -c "rm -f tmp/pids/server.pid && bundle exec rails s -p 3001 -b '0.0.0.0'"`

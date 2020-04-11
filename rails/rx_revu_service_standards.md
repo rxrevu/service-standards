@@ -135,13 +135,14 @@ We use `prometheus_exporter`.
     ```
 
 2. Add the following to `config/docker/initialize_rails.sh`
-    ```sh
+   ```sh
    #!/bin/sh
    set -e
    cd /usr/src/app
    bin/bundle exec prometheus_exporter &
-   bin/rails s -b  0.0.0.0
-    ```
+   rm -f tmp/pids/server.pid
+   bin/rails s -b 0.0.0.0
+   ```
 
 3. Make the following changes to your service(s) in `docker-compose.yml`:
     ```yml
@@ -432,8 +433,77 @@ TBD
 
 TBD
 
-1. Dockerfile
-2. docker-compose.yml
+1. Dockerfile example:
+   ```
+   FROM ruby:2.5.5
+   
+   RUN echo 'alias be="bundle exec"' >> ~/.bashrc
+   
+   LABEL maintainer="dev@rxrevu.com"
+   
+   RUN apt-get update -yqq && apt-get install -yqq --no-install-recommends \
+     apt-transport-https
+   
+   RUN curl -sL https://deb.nodesource.com/setup_8.x | bash -
+   
+   RUN curl -sS https://dl.yarnpkg.com/debian/pubkey.gpg | apt-key add -
+   RUN echo "deb https://dl.yarnpkg.com/debian/ stable main" | tee /etc/apt/sources.list.d/yarn.list
+   
+   RUN apt-get update -yqq && apt-get install -yqq --no-install-recommends \
+     nodejs \
+     yarn
+   
+   COPY Gemfile* /usr/src/app/
+   WORKDIR /usr/src/app
+   ENV BUNDLE_PATH /gems
+   RUN bundle install
+   
+   RUN echo "Prometheus Exporter setup"
+   COPY . /usr/src/app/
+   RUN mkdir -p /opt/fdb_service
+   COPY config/docker/initialize_rails.sh /opt/fdb_service/initialize.sh
+   RUN chmod +x /opt/fdb_service/initialize.sh
+   CMD ["/opt/fdb_service/initialize.sh"]
+   ```
+
+2. docker-compose.yml example:
+   ```
+    version: '3'
+    
+    services:
+      web:
+        build: .
+        ports:
+          - "3000:3000"
+          - "8080:9394"
+        volumes:
+          - .:/usr/src/app
+          - gem_cache:/gems
+        env_file:
+          - .env/development/database
+          - .env/development/web
+          - .env/development/apm
+        networks:
+          - elk
+    
+      database:
+        image: postgres
+        env_file:
+          - .env/development/database
+        volumes:
+          - db_data:/var/lib/postgresql/data
+        networks:
+          - elk
+    
+    volumes:
+      db_data:
+      gem_cache:
+    
+    networks:
+      elk:
+        external:
+          name: docker-elk_elk
+   ```
 
 ### Terraform
 
@@ -453,12 +523,67 @@ TBD
 #### CodeBuild
 
 TBD
+`buildspec.yml`
+
+```
+   version: 0.2
+   
+   phases:
+     install:
+       runtime-versions:
+         ruby: 2.6
+       commands:
+         - export TAG=$(echo $CODEBUILD_RESOLVED_SOURCE_VERSION | cut -c -7)
+         - echo $TAG
+     pre_build:
+       commands:
+         - echo Logging in to Amazon ECR...
+         - $(aws ecr get-login --region us-east-1 --no-include-email)
+         - export ECR_REPO_PREFIX="566112438981.dkr.ecr.us-east-1.amazonaws.com/fdb_service"
+     build:
+       commands:
+         - echo Build Stage started on `date`
+         - echo Testing Source Code...
+         - docker network create alt_curation
+         - docker-compose -f docker-compose.yml -f docker-compose.test.yml up -d fdb_database
+         - docker-compose -f docker-compose.yml -f docker-compose.test.yml run --rm fdb bash -c "./test.sh"
+         - docker-compose down
+         - echo Building Docker Image...
+         - docker build -t fdb_service_build .
+     post_build:
+       commands:
+         - echo Pushing Docker Image...
+         - docker tag fdb_service_build:latest $ECR_REPO_PREFIX:$TAG
+         - docker push $ECR_REPO_PREFIX:$TAG
+         - sed "s/\$TAG/${TAG}/" imagedefinitions_template.json > imagedefinitions.json
+   artifacts:
+     files:
+       - ./imagedefinitions.json
+       - ./appspec.yaml
+```
+`imagedefinitions_template.json`
+```
+   [
+     {
+       "name": "fdb_service",
+       "imageUri": "566112438981.dkr.ecr.us-east-1.amazonaws.com/fdb_service:$TAG"
+     }
+   ]
+```
 
 #### CodePipeline / CodeDeploy
 
 TBD
-
-## Troubleshooting
-
-* If you have trouble starting up a rails app because the `server.pid` file exists, you can add this command to your service in `docker-compose.yml` as a workaround:
-  * `command: bash -c "rm -f tmp/pids/server.pid && bundle exec rails s -p 3001 -b '0.0.0.0'"`
+- terraform stuff
+`docker-compose.test.yml`
+```
+  version: '3'
+  
+  services:
+    fdb:
+      env_file:
+        - .env/test/database
+        - .env/test/web
+```
+- create & commit .env/test/*
+- create webhook 

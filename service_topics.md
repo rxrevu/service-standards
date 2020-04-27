@@ -1,5 +1,11 @@
 # RxRevu Service Standards
 
+Below is a (hopefully) organized collection of topics regarding services. These items are things that 1) we are currently doing, 2) we gathered from research, or 3) have come up during interviews, conversations, and meetings.
+
+Items with question marks (`?`) are either things we haven't gotten to or alternatives that members of the larger group have mentioned.
+
+---
+
 1. Observability
     1. Logging
     2. APM

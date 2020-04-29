@@ -86,5 +86,5 @@ Items with question marks (`?`) are either things we haven't gotten to or altern
     5. Documentation
         1. Swagger/Open API
         2. gRPC
-            3. Protobuf
+        3. Protobuf
     6. Caching

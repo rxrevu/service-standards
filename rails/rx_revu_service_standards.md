@@ -17,18 +17,43 @@ We use `rails_semantic_logger`.
 
 2. Add this to your `application.rb`:
     ```ruby
-    config.log_tags = {
-      request_id: :request_id,
-      remote_ip: :remote_ip,
-    }
+    unless Rails.env.test?
+      config.log_tags = {
+        request_id: :request_id,
+        remote_ip: :remote_ip,
+      }
 
-    config.rails_semantic_logger.add_file_appender = false # turn off default appender
+      config.rails_semantic_logger.add_file_appender = false # turn off default appender
 
-    config.semantic_logger.add_appender(
-      application: "FdbService", # replace with service name
-      file_name: "log/fdb_service.log", # replace with service name
-      formatter: :json,
-    )
+      payload_filter = lambda do |log|
+        return false if log.name == "HealthCheck::HealthCheckController"
+
+        if log.payload.present?
+          return false if log.payload[:path] == "/health_check"
+        end
+
+        return true
+      end
+
+      if ENV["LOG_LEVEL"].present?
+        config.log_level = ENV["LOG_LEVEL"].downcase.strip.to_sym
+      end
+
+      config.semantic_logger.add_appender(
+        application: "FdbService", # replace with service name
+        file_name: "log/fdb_service.log", # replace with service name
+        formatter: :json,
+        filter: payload_filter,
+        level: config.log_level
+      )
+      config.semantic_logger.add_appender(
+        application: "FdbService",
+        io: STDOUT,
+        formatter: :json,
+        filter: payload_filter,
+        level: config.log_level
+      )
+    end
     ```
 
 3. Celebrate

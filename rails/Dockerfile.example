@@ -1,0 +1,15 @@
+FROM ruby:2.5.5
+RUN echo 'alias be="bundle exec"' >> ~/.bashrc
+RUN echo 'alias ll="ls -l"' >> ~/.bashrc
+
+LABEL maintainer="dev@rxrevu.com"
+
+COPY Gemfile* /usr/src/app/
+WORKDIR /usr/src/app
+ENV BUNDLE_PATH /gems
+RUN bundle install
+
+COPY . /usr/src/app/
+RUN mkdir ./log && touch ./log/<service_name>.log
+
+CMD ["bin/rails", "s", "-b", "0.0.0.0"]

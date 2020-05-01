@@ -1,0 +1,71 @@
+#!/usr/bin/env bash
+
+exit_code=0
+
+echo "****************************************"
+echo "** <service_name>                     **"
+echo "****************************************"
+
+echo ""
+echo "* Bundling"
+echo ""
+bundle | grep Installing
+
+echo ""
+echo "*** Running FdbService Engine Brakeman Checks"
+echo "* Installing latest brakeman"
+
+output="$(bundle exec brakeman --quiet --exit-on-warn --exit-on-error --no-pager --ensure-latest 2>&1)"
+brakeman_exit_code=$?
+
+echo ""
+echo "************************************"
+if (($brakeman_exit_code)) ; then
+  printf "\e[31m${output}\e[0m\n"
+else
+  echo "${output}"
+fi
+echo "************************************"
+echo ""
+
+exit_code=$(($exit_code + $brakeman_exit_code))
+
+echo ""
+echo "*** Running FdbService Bundler-Audit Check"
+bundle exec bundle-audit check --update
+
+exit_code=$(($exit_code + $?))
+
+echo ""
+echo "*** Running FdbService Rubocop Checks"
+echo "* Bundling"
+bundle exec rubocop --config ./.rubocop.yml --fail-level W --display-only-fail-level-offenses
+
+exit_code=$(($exit_code + $?))
+
+echo ""
+echo "*** Running FdbService Engine Specs"
+echo "* Clearing log directory"
+find . -name "*.log" | xargs rm -f
+echo "* Dropping database"
+RAILS_ENV=test bundle exec rake db:drop
+echo "* Creating database"
+RAILS_ENV=test bundle exec rake db:create
+echo "* Loading schema"
+RAILS_ENV=test bundle exec rake db:schema:load
+
+bundle exec rspec
+
+exit_code=$(($exit_code + $?))
+
+echo ""
+echo "************************************"
+if ((exit_code == 0)) ; then
+  echo "TESTS SUCCEEDED"
+else
+  echo "TESTS FAILED"
+fi
+echo "************************************"
+
+exit $exit_code
+

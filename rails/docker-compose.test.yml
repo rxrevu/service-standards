@@ -1,0 +1,7 @@
+version: '3'
+
+services:
+  web:
+    env_file:
+      - .env/test/database
+      - .env/test/web

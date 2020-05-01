@@ -1,0 +1,5 @@
+server_url: <%= ENV["ELASTIC_APM_SERVER_URL"] %>
+secret_token: <%= ENV["ELASTIC_APM_SECRET_TOKEN"] %>
+active: <%= ENV.fetch("ELASTIC_APM_ACTIVE", "false") %>
+service_name: "FdbService"
+service_version: <%= ENV.fetch("SERVICE_VERSION", "unknown") %>

@@ -1,0 +1,39 @@
+version: 0.2
+
+phases:
+  install:
+    runtime-versions:
+      ruby: 2.6
+    commands:
+      - export ACCOUNT_ID=$(echo $CODEBUILD_BUILD_ARN | cut -d ':' -f 5)
+      - echo $ACCOUNT_ID
+      - export TAG=$(echo $CODEBUILD_RESOLVED_SOURCE_VERSION | cut -c -7)
+      - echo $TAG
+  pre_build:
+    commands:
+      - echo Logging in to Amazon ECR...
+      - $(aws ecr get-login --region us-east-1 --no-include-email)
+      - export ECR_REPO_PREFIX="${ACCOUNT_ID}.dkr.ecr.us-east-1.amazonaws.com/<service_name>"
+  build:
+    commands:
+      - echo Build Stage started on `date`
+      - echo Building Docker Image...
+      - docker build -t release_candidate_<service_name> .
+      - echo Testing Source Code...
+      - docker network create alt_curation
+      - docker network create docker-elk_elk
+      - docker-compose -f docker-compose.yml -f docker-compose.test.yml up -d database
+      - docker-compose -p release_candidate -f docker-compose.yml -f docker-compose.test.yml run --rm web bash -c "./test.sh"
+      - docker-compose down
+      - docker tag release_candidate_<service_name>:latest <service_name>_service_build:latest
+  post_build:
+    commands:
+      - echo Pushing Docker Image...
+      - docker tag <service_name>_service_build:latest $ECR_REPO_PREFIX:$TAG
+      - docker push $ECR_REPO_PREFIX:$TAG
+      - docker tag <service_name>_service_build:latest $ECR_REPO_PREFIX:latest
+      - docker push $ECR_REPO_PREFIX:latest
+      - sed -e "s/\$TAG/${TAG}/" -e "s/\$ACCOUNT_ID/${ACCOUNT_ID}/" imagedefinitions_template.json > imagedefinitions.json
+artifacts:
+  files:
+    - ./imagedefinitions.json

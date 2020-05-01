@@ -4,6 +4,27 @@
 
 <!--TOC max2 -->
 
+### Getting Started
+
+#### Create yours rails app
+1. Run a docker container for ruby:
+    ```bash
+    > docker run -it -v $(pwd):/usr/src/app ruby:2.5.5 bash
+    ```
+2. Within the docker shell:
+    ```bash
+    > cd /usr/src/app
+    > gem install rails -v 5.2.4.2
+    > rails new <service_name> --skip-test --skip-bundle --database postgresql --no-action-cable --skip-coffee --api
+    > exit
+    ```
+
+3. Create `Dockerfile` and add the following:
+    TBD
+
+4. Create `docker-compose.yml` and add the following:
+    TBD
+
 ### Logging
 
 We use `rails_semantic_logger`.
@@ -15,7 +36,7 @@ We use `rails_semantic_logger`.
     gem "rails_semantic_logger"
     ```
 
-2. Add this to your `application.rb`:
+2. Add this to the bottom of your `application.rb` (be sure to change service name):
     ```ruby
     unless Rails.env.test?
       config.log_tags = {
@@ -40,14 +61,14 @@ We use `rails_semantic_logger`.
       end
 
       config.semantic_logger.add_appender(
-        application: "FdbService", # replace with service name
-        file_name: "log/fdb_service.log", # replace with service name
+        application: "<ServiceName>", # replace with service name
+        file_name: "log/<service_name>.log", # replace with service name
         formatter: :json,
         filter: payload_filter,
         level: config.log_level
       )
       config.semantic_logger.add_appender(
-        application: "FdbService",
+        application: "<ServiceName>",
         io: STDOUT,
         formatter: :json,
         filter: payload_filter,
@@ -69,34 +90,13 @@ We use the ELK stack.
     gem "elastic-apm"
     ```
 
-2. Create `config/elastic_apm.yml` and add the following:
-    ```yml
-    server_url: <%= ENV["ELASTIC_APM_SERVER_URL"] %>
-    secret_token: <%= ENV["ELASTIC_APM_SECRET_TOKEN"] %>
-    active: <%= ENV.fetch("ELASTIC_APM_ACTIVE", "false") %>
-    service_name: "FdbService" # replace with service name
-    service_version: <%= ENV.fetch("SERVICE_VERSION", "unknown") %>
-    ```
+2. Create `config/elastic_apm.yml` and add the following (be sure to change service name):
+
+    [elastic_apm.yml.example](./elastic_apm.yml.example)
 
 3. Create `.env/development/apm` and add the following:
-    ```
-    ELASTIC_APM_ACTIVE=true
-    ELASTIC_APM_API_REQUEST_TIME=29s
-    ELASTIC_APM_CAPTURE_BODY=off
-    ELASTIC_APM_IGNORE_URL_PATTERNS=health_check
-    ELASTIC_APM_METRICS_INTERVAL=10s
-    ELASTIC_APM_SECRET_TOKEN=''
-    ELASTIC_APM_SERVER_URL=http://apm-server:8200
-    ELASTIC_APM_SOURCE_LINES_ERROR_APP_FRAMES=10
-    ELASTIC_APM_SOURCE_LINES_ERROR_LIBRARY_FRAMES=5
-    ELASTIC_APM_SOURCE_LINES_SPAN_APP_FRAMES=0
-    ELASTIC_APM_SOURCE_LINES_SPAN_LIBRARY_FRAMES=0
-    ELASTIC_APM_TRANSACTION_SAMPLE_RATE=0.2
-    ELASTIC_APM_VERIFY_SERVER_CERT=false
-    ELASTICSEARCH_HOSTS=http://elasticsearch:9200
-    ELASTICSEARCH_PASSWORD=<get this from your friends>
-    ELASTICSEARCH_USERNAME=<get this from your friends>
-    ```
+
+    [apm](./env/development/apm)
 
 4. Make the following changes to your service(s) in `docker-compose.yml`:
     ```yml
@@ -122,31 +122,38 @@ We use the ELK stack.
 #### Running Elk:
 
 1. Clone docker-elk
-    * Git clone this project: [https://github.com/deviantony/docker-elk](https://github.com/deviantony/docker-elk)
+
+    Git clone this project: [https://github.com/deviantony/docker-elk](https://github.com/deviantony/docker-elk)
+
 2. Create elk network
-    `docker network create docker-elk_elk`
+
+    ```bash
+    > docker network create docker-elk_elk
+    ```
+
 3. Run docker-elk
-    ```yml
-       docker-compose -f docker-compose.yml -f extensions/apm-server/apm-server-compose.yml up 
+    ```bash
+    > docker-compose -f docker-compose.yml -f extensions/apm-server/apm-server-compose.yml up
     ```
 
 4. Celebrate
 
 #### Starting Kibana
 
-1. Navigate to http://localhost:5601
-2. Login using the `ELASTICSEARCH_USERNAME` and `ELASTICSEARCH_PASSWORD` stored in 1Password under "RxRevu - Elk Vars"
-3. (B) Add APM
-4. APM Server
+1. Navigate to [http://localhost:5601](http://localhost:5601)
+2. (F) Username: elastic
+3. (F) Password: changeme
+4. (B) Add APM
+5. APM Server
     1. (T) macOS
     2. (B) Check APM Server status
-5. APM Agents
+6. APM Agents
     1. (T) Ruby on Rails
     2. (B) Check agent status
     3. (B) Load Kibana objects
     4. (B) Launch APM
-6. (L) FdbService // replace with service name
-7. Celebrate
+7. (L) FdbService // replace with service name
+8. Celebrate
 
 ### Metrics
 
@@ -159,15 +166,9 @@ We use `prometheus_exporter`.
     gem "prometheus_exporter", "0.4.16"
     ```
 
-2. Add the following to `config/docker/initialize_rails.sh`
-   ```sh
-   #!/bin/sh
-   set -e
-   cd /usr/src/app
-   bin/bundle exec prometheus_exporter &
-   rm -f tmp/pids/server.pid
-   bin/rails s -b 0.0.0.0
-   ```
+2. Create `config/docker/initialize_rails.sh` and add the following:
+
+    [initialize_rails.sh](./initialize_rails.sh)
 
 3. Make the following changes to your service(s) in `docker-compose.yml`:
     ```yml
@@ -176,51 +177,23 @@ We use `prometheus_exporter`.
       - "8080:9394"
     ```
 
-4. Add the following to `config/initializers/0_prometheus.rb`
-    ```ruby
-    unless Rails.env.test?
-      require 'prometheus_exporter/instrumentation'
-      require 'prometheus_exporter/middleware'
-      require 'prometheus_exporter/client'
+4. Create `config/initializers/0_prometheus.rb` and add the following:
 
-      client = PrometheusExporter::Client.new(
-        custom_labels: {
-          environment: Rails.env,
-        },
-      )
-      client.register(:counter, "fdb_service", "Metadata for fdb_service").increment
+    [0_prometheus.rb](./0_prometheus.rb)
 
-      PrometheusExporter::Client.default = client
-      Rails.application.middleware.unshift PrometheusExporter::Middleware
-
-      Rails.application.config.after_initialize do
-        require 'prometheus_exporter/instrumentation'
-
-        PrometheusExporter::Instrumentation::ActiveRecord.start(
-          custom_labels: {
-            type: "web"
-          },
-          config_labels: [:database, :host]
-        )
-
-        PrometheusExporter::Instrumentation::Process.start(
-          type: "web"
-        )
-      end
-    end
-
-    ```
 5. Rebuild docker image: `docker-compose build`
+
 6. Add the following to `Dockerfile`
     ```
     # Prometheus Exporter
-    RUN mkdir -p /opt/fdb_service
-    COPY config/docker/initialize_rails.sh /opt/fdb_service/initialize.sh
-    RUN chmod +x /opt/fdb_service/initialize.sh
-    CMD ["/opt/fdb_service/initialize.sh"]
+    RUN mkdir -p /opt/<service_name>
+    COPY config/docker/initialize_rails.sh /opt/<service_name>/initialize.sh
+    RUN chmod +x /opt/<service_name>/initialize.sh
+    CMD ["/opt/<service_name>/initialize.sh"]
     ```
-7. Navigate to `localhost:8080/metrics` to verify it's working
-8. Celebrate    
+7. Navigate to [http://localhost:8080/metrics](http://localhost:8080/metrics) to verify it's working
+
+8. Celebrate
 
 ### Health Checks
 
@@ -233,13 +206,9 @@ We use `health_check`.
     gem "health_check", "3.0.0"
     ```
 
-2. Add the following to `config/initializers/health_check.rb`
-    ```ruby
-    HealthCheck.setup do |config|
-      config.standard_checks = [ "database", "migrations"]
-      config.full_checks = [ "database", "migrations"]
-    end
-    ```
+2. Create `config/initializers/health_check.rb` and add the following:
+
+    [health_check.rb](./health_check.rb)
 
 3. Add the following to `config/routes.rb`
     ```ruby
@@ -248,7 +217,7 @@ We use `health_check`.
     ...
     ```
 
-4. Navigate to `localhost:3000/health_check` to verify it's working    
+4. Navigate to [http://localhost:3000/health_check](http://localhost:3000/health_check) to verify it's working
 
 ### Rails Standards
 
@@ -287,38 +256,38 @@ We use `rubocop`.
       ...
     end
     ```
-   
+
 2. Create `.rubocop.yml` at the top level of your project:
     ```
     AllCops:
       TargetRubyVersion: 2.5.5
       Exclude:
         - spec/dummy/db/schema.rb
-    
+
     Layout/LineLength:
       Max: 120
-    
+
     Style/AndOr:
       Enabled: false
-    
+
     Lint/ShadowingOuterLocalVariable:
       Enabled: false
-    
+
     Style/Documentation:
       Enabled: false
-    
+
     Style/FrozenStringLiteralComment:
       Enabled: false
-    
+
     Style/StringLiterals:
       EnforcedStyle: double_quotes
-    
+
     Style/TrailingCommaInArguments:
       EnforcedStyleForMultiline: comma
-    
+
     Style/TrailingCommaInArrayLiteral:
       EnforcedStyleForMultiline: comma
-    
+
     Style/TrailingCommaInHashLiteral:
       EnforcedStyleForMultiline: comma
     ```
@@ -364,25 +333,25 @@ We use `test.sh` to wrap the above steps
 1. Create `test.sh`:
    ```
    #!/usr/bin/env bash
-   
+
    exit_code=0
-   
+
    echo "****************************************"
    echo "** MyService                          **"
    echo "****************************************"
-   
+
    echo ""
    echo "* Bundling"
    echo ""
    bundle | grep Installing
-   
+
    echo ""
    echo "*** Running Brakeman Checks"
    echo "* Installing latest brakeman"
-   
+
    output="$(bundle exec brakeman --quiet --exit-on-warn --exit-on-error --no-pager --ensure-latest 2>&1)"
    brakeman_exit_code=$?
-   
+
    echo ""
    echo "************************************"
    if (($brakeman_exit_code)) ; then
@@ -392,22 +361,22 @@ We use `test.sh` to wrap the above steps
    fi
    echo "************************************"
    echo ""
-   
+
    exit_code=$(($exit_code + $brakeman_exit_code))
-   
+
    echo ""
    echo "*** Running Bundler-Audit Check"
    bundle exec bundle-audit check --update
-   
+
    exit_code=$(($exit_code + $?))
-   
+
    echo ""
    echo "*** Running Rubocop Checks"
    echo "* Bundling"
    bundle exec rubocop --config ./.rubocop.yml --fail-level W --display-only-fail-level-offenses
-   
+
    exit_code=$(($exit_code + $?))
-   
+
    echo ""
    echo "*** Running Specs"
    echo "* Clearing log directory"
@@ -416,13 +385,13 @@ We use `test.sh` to wrap the above steps
    RAILS_ENV=test bundle exec rake db:drop
    echo "* Creating database"
    RAILS_ENV=test bundle exec rake db:create
-   echo "* Loading structure"
+   echo "* Loading schema"
    RAILS_ENV=test bundle exec rake db:schema:load
-   
+
    bundle exec rspec
-   
+
    exit_code=$(($exit_code + $?))
-   
+
    echo ""
    echo "************************************"
    if ((exit_code == 0)) ; then
@@ -431,9 +400,9 @@ We use `test.sh` to wrap the above steps
      echo "TESTS FAILED"
    fi
    echo "************************************"
-   
+
    exit $exit_code
-   ```   
+   ```
 2. Run `docker-compose run fdb ./test.sh`
 
 #### Schema v. Structure
@@ -458,78 +427,6 @@ TBD
 
 TBD
 
-1. Dockerfile example:
-   ```
-   FROM ruby:2.5.5
-   
-   RUN echo 'alias be="bundle exec"' >> ~/.bashrc
-   
-   LABEL maintainer="dev@rxrevu.com"
-   
-   RUN apt-get update -yqq && apt-get install -yqq --no-install-recommends \
-     apt-transport-https
-   
-   RUN curl -sL https://deb.nodesource.com/setup_8.x | bash -
-   
-   RUN curl -sS https://dl.yarnpkg.com/debian/pubkey.gpg | apt-key add -
-   RUN echo "deb https://dl.yarnpkg.com/debian/ stable main" | tee /etc/apt/sources.list.d/yarn.list
-   
-   RUN apt-get update -yqq && apt-get install -yqq --no-install-recommends \
-     nodejs \
-     yarn
-   
-   COPY Gemfile* /usr/src/app/
-   WORKDIR /usr/src/app
-   ENV BUNDLE_PATH /gems
-   RUN bundle install
-   
-   RUN echo "Prometheus Exporter setup"
-   COPY . /usr/src/app/
-   RUN mkdir -p /opt/fdb_service
-   COPY config/docker/initialize_rails.sh /opt/fdb_service/initialize.sh
-   RUN chmod +x /opt/fdb_service/initialize.sh
-   CMD ["/opt/fdb_service/initialize.sh"]
-   ```
-
-2. docker-compose.yml example:
-   ```
-    version: '3'
-    
-    services:
-      web:
-        build: .
-        ports:
-          - "3000:3000"
-          - "8080:9394"
-        volumes:
-          - .:/usr/src/app
-          - gem_cache:/gems
-        env_file:
-          - .env/development/database
-          - .env/development/web
-          - .env/development/apm
-        networks:
-          - elk
-    
-      database:
-        image: postgres
-        env_file:
-          - .env/development/database
-        volumes:
-          - db_data:/var/lib/postgresql/data
-        networks:
-          - elk
-    
-    volumes:
-      db_data:
-      gem_cache:
-    
-    networks:
-      elk:
-        external:
-          name: docker-elk_elk
-   ```
-
 ### Terraform
 
 TBD
@@ -552,7 +449,7 @@ TBD
 
 ```
    version: 0.2
-   
+
    phases:
      install:
        runtime-versions:
@@ -603,7 +500,7 @@ TBD
 `docker-compose.test.yml`
 ```
   version: '3'
-  
+
   services:
     fdb:
       env_file:
@@ -611,4 +508,4 @@ TBD
         - .env/test/web
 ```
 - create & commit .env/test/*
-- create webhook 
+- create webhook

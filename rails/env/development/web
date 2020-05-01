@@ -1,0 +1,4 @@
+DATABASE_HOST=database
+SERVICE_ENVIRONMENT=<service_name>
+HOSTNAME=localhost
+RAILS_ENV=development

@@ -1,0 +1,6 @@
+./tmp
+./log
+./coverage
+.byebug_history
+.gitignore
+.pairs

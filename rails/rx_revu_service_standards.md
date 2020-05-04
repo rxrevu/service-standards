@@ -20,10 +20,12 @@
     ```
 
 3. Create `Dockerfile` and add the following:
-    TBD
+
+    [Dockerfile.example](./Dockerfile.example)
 
 4. Create `docker-compose.yml` and add the following:
-    TBD
+
+    [docker-compose.yml.example](./docker-compose.yml.example)
 
 ### Logging
 
@@ -31,7 +33,7 @@ We use `rails_semantic_logger`.
 
 #### Setup
 
-1. Add this to your Gemfile:
+1. Add the following to `Gemfile` and bundle (within docker):
     ```ruby
     gem "rails_semantic_logger"
     ```
@@ -85,7 +87,7 @@ We use the ELK stack.
 
 #### Setup
 
-1. Add this to your Gemfile:
+1. Add the following to `Gemfile` and bundle (within docker):
     ```ruby
     gem "elastic-apm"
     ```
@@ -155,18 +157,18 @@ We use the ELK stack.
 7. (L) FdbService // replace with service name
 8. Celebrate
 
-### Metrics
+### Metrics (Prometheus)
 
 We use `prometheus_exporter`.
 
 #### Setup
 
-1. Add this to your Gemfile:
+1. Add the following to `Gemfile` and bundle (within docker):
     ```ruby
     gem "prometheus_exporter", "0.4.16"
     ```
 
-2. Create `config/docker/initialize_rails.sh` and add the following:
+2. Create `config/docker/initialize_rails.sh` and add:
 
     [initialize_rails.sh](./initialize_rails.sh)
 
@@ -177,23 +179,30 @@ We use `prometheus_exporter`.
       - "8080:9394"
     ```
 
-4. Create `config/initializers/0_prometheus.rb` and add the following:
+4. Create `config/initializers/0_prometheus.rb` and add:
 
     [0_prometheus.rb](./0_prometheus.rb)
 
-5. Rebuild docker image: `docker-compose build`
-
-6. Add the following to `Dockerfile`
+5. In `Dockerfile`, replace the `CMD`line with:
     ```
     # Prometheus Exporter
     RUN mkdir -p /opt/<service_name>
     COPY config/docker/initialize_rails.sh /opt/<service_name>/initialize.sh
     RUN chmod +x /opt/<service_name>/initialize.sh
+
     CMD ["/opt/<service_name>/initialize.sh"]
     ```
-7. Navigate to [http://localhost:8080/metrics](http://localhost:8080/metrics) to verify it's working
+6. Navigate to [http://localhost:8080/metrics](http://localhost:8080/metrics) to verify it's working
 
-8. Celebrate
+7. Celebrate
+
+### Metrics (Filebeat)
+
+TBD
+
+### Metrics (Metricbeat)
+
+TBD
 
 ### Health Checks
 
@@ -201,12 +210,12 @@ We use `health_check`.
 
 #### Setup
 
-1. Add this to your Gemfile:
+1. Add the following to `Gemfile` and bundle (within docker):
     ```ruby
     gem "health_check", "3.0.0"
     ```
 
-2. Create `config/initializers/health_check.rb` and add the following:
+2. Create `config/initializers/health_check.rb` and add:
 
     [health_check.rb](./health_check.rb)
 
@@ -218,6 +227,109 @@ We use `health_check`.
     ```
 
 4. Navigate to [http://localhost:3000/health_check](http://localhost:3000/health_check) to verify it's working
+
+---
+
+### Configuration Management
+
+TBD
+
+### Secrets Management
+
+TBD
+
+### Security
+
+TBD
+
+### Containerization (Docker)
+
+TBD
+
+### Terraform
+
+TBD
+
+1. Setup Database
+2. Setup Load Balancer
+    1. Listener
+    2. Target Group
+3. Setup Service
+    1. Task Definition
+
+### CI / CD
+
+TBD
+
+#### CodeBuild
+
+TBD
+`buildspec.yml`
+
+```
+   version: 0.2
+
+   phases:
+     install:
+       runtime-versions:
+         ruby: 2.6
+       commands:
+         - export TAG=$(echo $CODEBUILD_RESOLVED_SOURCE_VERSION | cut -c -7)
+         - echo $TAG
+     pre_build:
+       commands:
+         - echo Logging in to Amazon ECR...
+         - $(aws ecr get-login --region us-east-1 --no-include-email)
+         - export ECR_REPO_PREFIX="566112438981.dkr.ecr.us-east-1.amazonaws.com/fdb_service"
+     build:
+       commands:
+         - echo Build Stage started on `date`
+         - echo Testing Source Code...
+         - docker network create alt_curation
+         - docker-compose -f docker-compose.yml -f docker-compose.test.yml up -d fdb_database
+         - docker-compose -f docker-compose.yml -f docker-compose.test.yml run --rm fdb bash -c "./test.sh"
+         - docker-compose down
+         - echo Building Docker Image...
+         - docker build -t fdb_service_build .
+     post_build:
+       commands:
+         - echo Pushing Docker Image...
+         - docker tag fdb_service_build:latest $ECR_REPO_PREFIX:$TAG
+         - docker push $ECR_REPO_PREFIX:$TAG
+         - sed "s/\$TAG/${TAG}/" imagedefinitions_template.json > imagedefinitions.json
+   artifacts:
+     files:
+       - ./imagedefinitions.json
+       - ./appspec.yaml
+```
+`imagedefinitions_template.json`
+```
+   [
+     {
+       "name": "fdb_service",
+       "imageUri": "566112438981.dkr.ecr.us-east-1.amazonaws.com/fdb_service:$TAG"
+     }
+   ]
+```
+
+#### CodePipeline / CodeDeploy
+
+TBD
+- terraform stuff
+`docker-compose.test.yml`
+```
+  version: '3'
+
+  services:
+    fdb:
+      env_file:
+        - .env/test/database
+        - .env/test/web
+```
+- create & commit .env/test/*
+- create webhook
+
+---
 
 ### Rails Standards
 
@@ -411,101 +523,4 @@ Prefer `schema`. It is the default with Rails and is database engine agnostic. H
 - You need views.
 - You need database specific extentions (e.g. `postgis` for `postgresql`)
 
-### Configuration Management
 
-TBD
-
-### Secrets Management
-
-TBD
-
-### Security
-
-TBD
-
-### Containerization (Docker)
-
-TBD
-
-### Terraform
-
-TBD
-
-1. Setup Database
-2. Setup Load Balancer
-    1. Listener
-    2. Target Group
-3. Setup Service
-    1. Task Definition
-
-### CI / CD
-
-TBD
-
-#### CodeBuild
-
-TBD
-`buildspec.yml`
-
-```
-   version: 0.2
-
-   phases:
-     install:
-       runtime-versions:
-         ruby: 2.6
-       commands:
-         - export TAG=$(echo $CODEBUILD_RESOLVED_SOURCE_VERSION | cut -c -7)
-         - echo $TAG
-     pre_build:
-       commands:
-         - echo Logging in to Amazon ECR...
-         - $(aws ecr get-login --region us-east-1 --no-include-email)
-         - export ECR_REPO_PREFIX="566112438981.dkr.ecr.us-east-1.amazonaws.com/fdb_service"
-     build:
-       commands:
-         - echo Build Stage started on `date`
-         - echo Testing Source Code...
-         - docker network create alt_curation
-         - docker-compose -f docker-compose.yml -f docker-compose.test.yml up -d fdb_database
-         - docker-compose -f docker-compose.yml -f docker-compose.test.yml run --rm fdb bash -c "./test.sh"
-         - docker-compose down
-         - echo Building Docker Image...
-         - docker build -t fdb_service_build .
-     post_build:
-       commands:
-         - echo Pushing Docker Image...
-         - docker tag fdb_service_build:latest $ECR_REPO_PREFIX:$TAG
-         - docker push $ECR_REPO_PREFIX:$TAG
-         - sed "s/\$TAG/${TAG}/" imagedefinitions_template.json > imagedefinitions.json
-   artifacts:
-     files:
-       - ./imagedefinitions.json
-       - ./appspec.yaml
-```
-`imagedefinitions_template.json`
-```
-   [
-     {
-       "name": "fdb_service",
-       "imageUri": "566112438981.dkr.ecr.us-east-1.amazonaws.com/fdb_service:$TAG"
-     }
-   ]
-```
-
-#### CodePipeline / CodeDeploy
-
-TBD
-- terraform stuff
-`docker-compose.test.yml`
-```
-  version: '3'
-
-  services:
-    fdb:
-      env_file:
-        - .env/test/database
-        - .env/test/web
-```
-- create & commit .env/test/*
-- create webhook
